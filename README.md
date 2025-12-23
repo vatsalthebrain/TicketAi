@@ -2,6 +2,16 @@
 
 A smart ticket management system that uses AI to automatically categorize, prioritize, and assign support tickets to the most appropriate moderators.
 
+<img width="1600" height="767" alt="image" src="https://github.com/user-attachments/assets/e31f88cb-742d-4f75-8e9c-810cb63f44eb" />
+
+<img width="1600" height="623" alt="image" src="https://github.com/user-attachments/assets/185fb8e1-2990-4410-8a6a-f8848e506ff3" />
+
+<img width="1600" height="764" alt="image" src="https://github.com/user-attachments/assets/faf0be96-f7f8-4cb0-a3ad-8fa1cb901d31" />
+
+<img width="1600" height="739" alt="image" src="https://github.com/user-attachments/assets/497d5f3b-9cec-45bd-912a-cc3dc2f9b145" />
+
+<img width="1600" height="508" alt="image" src="https://github.com/user-attachments/assets/324a3041-4483-45df-a427-aedb699a5e0e" />
+
 ## 🚀 Features
 
 - **AI-Powered Ticket Processing**
