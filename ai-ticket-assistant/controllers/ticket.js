@@ -1,4 +1,4 @@
-import { inngest } from "../inngest/client.js";
+import { processTicketCreated } from "../utils/agent.js";
 import Ticket from "../models/ticket.js";
 
 export const createTicket = async (req, res) => {
@@ -15,15 +15,10 @@ export const createTicket = async (req, res) => {
       createdBy: req.user._id.toString(),
     });
 
-    await inngest.send({
-      name: "ticket/created",
-      data: {
-        ticketId: newTicket._id.toString(),
-        title,
-        description,
-        createdBy: req.user._id.toString(),
-      },
-    });
+    processTicketCreated(newTicket._id.toString()).catch((err) =>
+      console.error("❌ Error running processTicketCreated:", err)
+    );
+
     return res.status(201).json({
       message: "Ticket created and processing started",
       ticket: newTicket,

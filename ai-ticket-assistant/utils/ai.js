@@ -1,17 +1,21 @@
 import axios from "axios";
 import dotenv from "dotenv";
 
+dotenv.config();
+
 const analyzeTicket = async (ticket) => {
-  try{
-    const OPENROUTER_API_KEY = process.env.GEMINI_API_KEY;
-const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
-    console.log(ticket);
-  const response = await axios.post(OPENROUTER_API_URL,{
-    model: "x-ai/grok-4.1-fast:free",
-    messages: [
-      {
-        role: "system",
-        content: `You are an expert AI assistant that processes technical support tickets. 
+  try {
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_API_KEY) {
+      console.error("❌ GEMINI_API_KEY is not defined in environment variables.");
+      return null;
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+    console.log("🤖 Requesting Gemini analysis for ticket:", ticket._id);
+
+    const prompt = `You are an expert AI assistant that processes technical support tickets. 
 
 Your job is to:
 1. Summarize the issue.
@@ -19,55 +23,123 @@ Your job is to:
 3. Provide helpful notes and resource links for human moderators.
 4. List relevant technical skills required.
 
-IMPORTANT:
-- Respond with *only* valid raw JSON.
-- Do NOT include markdown, code fences, comments, or any extra formatting.
-- The format must be a raw JSON object.
-
-Repeat: Do not wrap your output in markdown or code fences.`,
-      },
-      {
-        role:"user",
-        content: `Analyze the following support ticket and provide a JSON object with:
-
+Respond with a JSON object containing the following keys:
 - summary: A short 1-2 sentence summary of the issue.
 - priority: One of "low", "medium", or "high".
 - helpfulNotes: A detailed technical explanation that a moderator can use to solve this issue. Include useful external links or resources if possible.
-- relatedSkills: An array of relevant skills required to solve the issue (e.g., ["React", "MongoDB"]).
+- relatedSkills: An array of relevant technical skills required (e.g., ["React", "MongoDB", "Node.js"]).
 
-Respond ONLY in this JSON format and do not include any other text or markdown in the answer:
-
-{
-"summary": "Short summary of the ticket",
-"priority": "high",
-"helpfulNotes": "Here are useful tips...",
-"relatedSkills": ["React", "Node.js"]
-}
-
----
-
-Ticket information:
-
+Ticket details:
 - Title: ${ticket.title}
-- Description: ${ticket.description}`
-      },],
-    max_tokens: 1024,
-            temperature: 0.3,
-  },
-{
-    headers: {
-      "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-});
- console.log(`Successfully got response from ` + OPENROUTER_API_URL);
- const raw= response.data.choices[0].message.content;
- return raw;
-    }catch(e){
-      console.log("Error during AI analysis: " + e.message);
+- Description: ${ticket.description}`;
+
+    const response = await axios.post(
+      url,
+      {
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+        },
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    console.log("Successfully got response from Gemini API");
+    const raw = response.data.candidates[0].content.parts[0].text;
+    return raw;
+  } catch (e) {
+    console.error("Error during AI analysis: " + (e.response?.data ? JSON.stringify(e.response.data) : e.message));
+    return null;
+  }
+};
+
+export const matchModerator = async (ticket, moderators) => {
+  try {
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_API_KEY) {
+      console.error("❌ GEMINI_API_KEY is not defined in environment variables.");
       return null;
     }
-  
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+    console.log("🤖 Requesting Gemini to assign moderator for ticket:", ticket._id);
+
+    const moderatorsList = moderators.map(mod => ({
+      email: mod.email,
+      role: mod.role,
+      skills: mod.skills || []
+    }));
+
+    const prompt = `You are an expert resource coordinator. Your job is to assign a technical support ticket to the best matching moderator/admin based on their skills and role.
+
+Ticket details:
+- Title: ${ticket.title}
+- Description: ${ticket.description}
+- AI Summary: ${ticket.summary || ""}
+
+Available moderators/admins:
+${JSON.stringify(moderatorsList, null, 2)}
+
+Analyze the ticket's technical requirements and semantically match them against the skills of the available moderators. If no moderator is a good fit, assign it to an administrator.
+
+Respond ONLY with a JSON object matching this schema:
+{
+  "assignedEmail": "email@example.com",
+  "reason": "Explain briefly why this person is the best match based on their skills."
+}`;
+
+    const response = await axios.post(
+      url,
+      {
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+        },
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const raw = response.data.candidates[0].content.parts[0].text;
+    console.log("🤖 Moderator assignment AI Response:", raw);
+
+    let parsed;
+    try {
+      parsed = typeof raw === "string" ? JSON.parse(raw) : raw || {};
+    } catch (e) {
+      console.error("❌ Failed to parse moderator assignment AI response:", e);
+      parsed = {};
+    }
+
+    return parsed.assignedEmail || null;
+  } catch (e) {
+    console.error("Error during AI moderator matching:", e.response?.data ? JSON.stringify(e.response.data) : e.message);
+    return null;
+  }
 };
 
 export default analyzeTicket;

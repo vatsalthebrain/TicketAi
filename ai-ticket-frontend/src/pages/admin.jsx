@@ -8,10 +8,32 @@ export default function AdminPanel() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const token = localStorage.getItem("token");
+  const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
 
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  const handleDelete = async (userId) => {
+    if (!window.confirm("Are you sure you want to delete this user? This will also unassign all their tickets.")) return;
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SERVER_URL}/auth/users/${userId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        fetchUsers();
+      } else {
+        alert(data.error || "Failed to delete user");
+      }
+    } catch (err) {
+      console.error("Delete failed", err);
+      alert("Something went wrong");
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -151,12 +173,22 @@ export default function AdminPanel() {
               </div>
             </div>
           ) : (
-            <button
-              className="btn btn-primary btn-sm mt-2"
-              onClick={() => handleEditClick(user)}
-            >
-              Edit
-            </button>
+            <div className="flex gap-2 mt-2">
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => handleEditClick(user)}
+              >
+                Edit
+              </button>
+              {currentUser._id !== user._id && (
+                <button
+                  className="btn btn-error btn-outline btn-sm"
+                  onClick={() => handleDelete(user._id)}
+                >
+                  Delete
+                </button>
+              )}
+            </div>
           )}
         </div>
       ))}

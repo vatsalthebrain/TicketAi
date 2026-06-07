@@ -1,24 +1,19 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User from "../models/user.js";
-import { inngest } from "../inngest/client.js";
+import Ticket from "../models/ticket.js";
+import { processUserSignup } from "../utils/agent.js";
 
 export const signup = async (req, res) => {
-  return res.status(400).json({message: "Signup is disabled"});
-
   const { email, password, skills = [] } = req.body;
   try {
     const hashed = await bcrypt.hash(password, 10);
     const user = await User.create({ email, password: hashed, skills });
 
     //Fire inngest event
-
-    await inngest.send({
-      name: "user/signup",
-      data: {
-        email,
-      },
-    });
+    processUserSignup(email).catch((err) =>
+      console.error("❌ Error running processUserSignup:", err)
+    );
 
     const token = jwt.sign(
       { _id: user._id, role: user.role },
@@ -33,6 +28,7 @@ export const signup = async (req, res) => {
 };
 
 export const login = async (req, res) => {
+  console.log("LOGIN REQUEST BODY:", req.body);
   const { email, password } = req.body;
 
   try {
@@ -98,5 +94,36 @@ export const getUsers = async (req, res) => {
     return res.json(users);
   } catch (error) {
     res.status(500).json({ error: "Update failed", details: error.message });
+  }
+};
+
+export const deleteUser = async (req, res) => {
+  try {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const userId = req.params.id;
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Prevent administrators from self-deleting
+    if (user._id.toString() === req.user._id.toString()) {
+      return res.status(400).json({ error: "You cannot delete your own admin account" });
+    }
+
+    // Safely unassign all tickets currently assigned to this user
+    await Ticket.updateMany({ assignedTo: userId }, { assignedTo: null });
+
+    // Delete the user from the database
+    await User.findByIdAndDelete(userId);
+
+    return res.json({ message: "User deleted successfully" });
+  } catch (error) {
+    console.error("❌ Error during user deletion:", error);
+    res.status(500).json({ error: "Delete failed", details: error.message });
   }
 };
