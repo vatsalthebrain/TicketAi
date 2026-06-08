@@ -142,4 +142,59 @@ Respond ONLY with a JSON object matching this schema:
   }
 };
 
+export const chatWithGemini = async (ticket, messages) => {
+  try {
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_API_KEY) {
+      console.error("❌ GEMINI_API_KEY is not defined in environment variables.");
+      return null;
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+    console.log("🤖 Requesting Gemini Chat Co-Pilot for ticket:", ticket._id);
+
+    const systemPrompt = `You are a helpful AI Co-Pilot helping a technical support moderator/admin resolve a support ticket.
+Here is the ticket context:
+- ID: ${ticket._id}
+- Title: ${ticket.title}
+- Description: ${ticket.description}
+- Priority: ${ticket.priority || "medium"}
+- Helpful Notes: ${ticket.helpfulNotes || "none"}
+- Related Skills: ${JSON.stringify(ticket.relatedSkills || [])}
+
+Please answer the moderator's questions based on this ticket context and your general technical knowledge. Keep your answers clear, helpful, and concise.`;
+
+    const contents = [];
+    messages.forEach((msg, idx) => {
+      let textContent = msg.content;
+      if (idx === 0 && msg.role === "user") {
+        textContent = `${systemPrompt}\n\nUser Question: ${msg.content}`;
+      }
+      contents.push({
+        role: msg.role === "assistant" ? "model" : "user",
+        parts: [{ text: textContent }]
+      });
+    });
+
+    const response = await axios.post(
+      url,
+      {
+        contents,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const raw = response.data.candidates[0].content.parts[0].text;
+    return raw;
+  } catch (e) {
+    console.error("Error during AI chat session: " + (e.response?.data ? JSON.stringify(e.response.data) : e.message));
+    return null;
+  }
+};
+
 export default analyzeTicket;

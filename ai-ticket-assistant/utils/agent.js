@@ -67,14 +67,20 @@ export const processTicketCreated = async (ticketId) => {
     }
 
     // Normalize shape
-    const aiResponse = {
-      summary: parsed.summary || "",
-      priority: parsed.priority || "medium",
-      helpfulNotes: parsed.helpfulNotes || "",
-      relatedSkills: Array.isArray(parsed.relatedSkills)
-        ? parsed.relatedSkills.filter(Boolean)
-        : [],
-    };
+    let aiResponse;
+    if (!rawAiResponse) {
+      console.log("⚠️ Gemini API returned null (quota exceeded or network error). Using local fallback analysis...");
+      aiResponse = generateFallbackAnalysis(ticket);
+    } else {
+      aiResponse = {
+        summary: parsed.summary || "",
+        priority: parsed.priority || "medium",
+        helpfulNotes: parsed.helpfulNotes || "",
+        relatedSkills: Array.isArray(parsed.relatedSkills)
+          ? parsed.relatedSkills.filter(Boolean)
+          : [],
+      };
+    }
 
     // 4) Use AI output to update ticket
     const normalizedPriority = String(aiResponse.priority).toLowerCase();
@@ -104,11 +110,21 @@ export const processTicketCreated = async (ticketId) => {
         summary: aiResponse.summary,
       };
 
-      const matchedEmail = await matchModerator(ticketWithAnalysis, allStaff);
+      let matchedEmail = null;
+      try {
+        matchedEmail = await matchModerator(ticketWithAnalysis, allStaff);
+      } catch (err) {
+        console.error("❌ AI moderator matching error:", err);
+      }
       console.log(`🤖 AI recommended assigning ticket to: ${matchedEmail}`);
 
-      if (matchedEmail) {
-        assignedUser = await User.findOne({ email: matchedEmail });
+      if (matchedEmail && typeof matchedEmail === "string") {
+        assignedUser = await User.findOne({ email: matchedEmail.toLowerCase().trim() });
+      }
+
+      if (!assignedUser) {
+        console.log("⚠️ AI matching did not find a valid moderator user. Using local skill-based matching...");
+        assignedUser = findBestModeratorLocally(ticket, allStaff);
       }
     }
 
@@ -156,3 +172,126 @@ ${finalTicket.helpfulNotes || "No notes generated."}
     console.error("❌ Error during background ticket processing:", error.message, error);
   }
 };
+
+function generateFallbackAnalysis(ticket) {
+  const title = (ticket.title || "").toLowerCase();
+  const description = (ticket.description || "").toLowerCase();
+  const text = `${title} ${description}`;
+
+  let priority = "medium";
+  if (text.includes("urgent") || text.includes("critical") || text.includes("broken") || text.includes("error") || text.includes("fail") || text.includes("crash") || text.includes("payment")) {
+    priority = "high";
+  } else if (text.includes("warning") || text.includes("slow") || text.includes("issue") || text.includes("wrong")) {
+    priority = "medium";
+  } else {
+    priority = "low";
+  }
+
+  // Extract skills based on keywords
+  const skillsList = [];
+  if (text.includes("react") || text.includes("frontend") || text.includes("css") || text.includes("color") || text.includes("colour") || text.includes("panel") || text.includes("signup") || text.includes("singup") || text.includes("login") || text.includes("page")) {
+    skillsList.push("React");
+  }
+  if (text.includes("database") || text.includes("sql") || text.includes("mongodb") || text.includes("mongo") || text.includes("mongoose") || text.includes("pnb")) {
+    skillsList.push("MongoDB");
+  }
+  if (text.includes("backend") || text.includes("api") || text.includes("server") || text.includes("routes") || text.includes("node") || text.includes("express") || text.includes("payment") || text.includes("gateway") || text.includes("auth")) {
+    skillsList.push("Node.js");
+  }
+  if (text.includes("pnb") || text.includes("data entry") || text.includes("hdfc")) {
+    skillsList.push("Database Management");
+    skillsList.push("Data Validation");
+  }
+
+  // Construct helpful notes based on matched skills
+  let notes = `### Quick Troubleshooting Guide\n\n`;
+  notes += `This ticket was processed using the local matching system because the AI quota was exceeded.\n\n`;
+  
+  if (skillsList.includes("React")) {
+    notes += `- **Frontend issue detected:** Inspect the react components in \`ai-ticket-frontend/src\`. Check style files and developer console logs for frontend syntax or rendering errors.\n`;
+  }
+  if (skillsList.includes("MongoDB")) {
+    notes += `- **Database issue detected:** Verify that MongoDB is running and that the connection URI in the \`.env\` file is correct. Inspect the model schema definitions in \`models/\`.\n`;
+  }
+  if (skillsList.includes("Node.js")) {
+    notes += `- **Backend issue detected:** Check server logs for API endpoint crashes or middleware authentication failures. Verify the routes are registered correctly in \`routes/\`.\n`;
+  }
+  if (skillsList.includes("Database Management")) {
+    notes += `- **Data Entry / Validation issue:** Check input sanitation and database save logic in the controllers to ensure all required fields are provided and formatted correctly.\n`;
+  }
+  
+  notes += `\nPlease contact the system administrator if you need further logs or assistance.`;
+
+  return {
+    summary: `Local analysis: ${ticket.title}`,
+    priority,
+    helpfulNotes: notes,
+    relatedSkills: skillsList
+  };
+}
+
+function findBestModeratorLocally(ticket, staffMembers) {
+  const title = (ticket.title || "").toLowerCase();
+  const description = (ticket.description || "").toLowerCase();
+  const textToSearch = `${title} ${description}`;
+
+  const skillKeywordsMap = {
+    "react": ["react", "frontend", "ui", "interface", "css", "color", "colour", "panel", "signup", "singup", "login", "button", "design", "page", "html", "style"],
+    "dashboard": ["dashboard", "analytics", "chart", "graph", "metric"],
+    "database administrator": ["database", "db", "sql", "mongodb", "mongo", "query", "schemas", "index", "connection", "mongoose", "pnb", "data"],
+    "database": ["database", "db", "sql", "mongodb", "mongo", "query", "schemas", "index", "connection", "mongoose", "pnb", "data"],
+    "sql": ["sql", "database", "query", "mysql", "postgres"],
+    "mongodb": ["mongodb", "mongo", "mongoose", "nosql"],
+    "backend": ["backend", "api", "server", "routes", "node", "express", "payment", "gateway", "stripe", "webhook", "auth", "token", "jwt", "email", "mail"],
+    "node": ["node", "nodejs", "javascript", "backend", "api", "server"],
+    "express": ["express", "router", "routes", "middleware", "api"],
+    "authentication": ["auth", "token", "jwt", "login", "signup", "singup", "password", "session"]
+  };
+
+  let bestStaff = null;
+  let maxScore = -1;
+
+  for (const member of staffMembers) {
+    let score = 0;
+    const skills = (member.skills || []).map(s => s.toLowerCase());
+
+    for (const skill of skills) {
+      // 1. Direct match of skill in text
+      if (textToSearch.includes(skill)) {
+        score += 5;
+      }
+
+      // 2. Keyword synonyms match
+      for (const [key, keywords] of Object.entries(skillKeywordsMap)) {
+        if (skill.includes(key) || key.includes(skill)) {
+          for (const kw of keywords) {
+            if (textToSearch.includes(kw)) {
+              score += 2;
+            }
+          }
+        }
+      }
+    }
+
+    // Preference to moderator role for support tickets
+    if (member.role === "moderator") {
+      score += 0.5;
+    }
+
+    if (score > maxScore) {
+      maxScore = score;
+      bestStaff = member;
+    }
+  }
+
+  // If no score matched any keyword, return the first moderator, or if none, the first admin
+  if (maxScore <= 0.5) {
+    const modsOnly = staffMembers.filter(m => m.role === "moderator");
+    if (modsOnly.length > 0) {
+      return modsOnly[0];
+    }
+    return staffMembers[0];
+  }
+
+  return bestStaff;
+}
