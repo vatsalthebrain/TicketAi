@@ -1,12 +1,9 @@
 {
   "name": "ticket-ai-root",
   "version": "1.0.0",
-  "description": "Root workspace configuration for AI Ticket Management System",
   "type": "module",
   "scripts": {
-    "dev:backend": "npm run dev --prefix ai-ticket-assistant",
-    "dev:frontend": "npm run dev --prefix ai-ticket-frontend",
-    "dev": "npx -y concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "install:all": "npm install --prefix ai-ticket-assistant && npm install --prefix ai-ticket-frontend"
+    "build": "npm install --prefix ai-ticket-frontend && npm run build --prefix ai-ticket-frontend",
+    "start": "npm start --prefix ai-ticket-assistant"
   }
 }
