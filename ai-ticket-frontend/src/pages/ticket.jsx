@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
+import { API_BASE_URL } from "../config";
 
 export default function TicketDetailsPage() {
   const { id } = useParams();
@@ -28,7 +29,7 @@ export default function TicketDetailsPage() {
   const fetchTicket = async () => {
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_SERVER_URL}/tickets/${id}`,
+        `${API_BASE_URL}/tickets/${id}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -59,7 +60,7 @@ export default function TicketDetailsPage() {
     if (!window.confirm("Are you sure you want to mark this ticket as resolved?")) return;
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_SERVER_URL}/tickets/${id}/resolve`,
+        `${API_BASE_URL}/tickets/${id}/resolve`,
         {
           method: "POST",
           headers: {
@@ -90,7 +91,7 @@ export default function TicketDetailsPage() {
 
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_SERVER_URL}/tickets/${id}/chat`,
+        `${API_BASE_URL}/tickets/${id}/chat`,
         {
           method: "POST",
           headers: {
@@ -129,7 +130,7 @@ export default function TicketDetailsPage() {
     setCommentLoading(true);
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_SERVER_URL}/tickets/${id}/comments`,
+        `${API_BASE_URL}/tickets/${id}/comments`,
         {
           method: "POST",
           headers: {

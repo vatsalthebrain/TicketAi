@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { API_BASE_URL } from "../config";
 
 export default function AdminPanel() {
   const [users, setUsers] = useState([]);
@@ -22,7 +23,7 @@ export default function AdminPanel() {
   const fetchAnalytics = async () => {
     try {
       setAnalyticsLoading(true);
-      const res = await fetch(`${import.meta.env.VITE_SERVER_URL}/tickets/analytics`, {
+      const res = await fetch(`${API_BASE_URL}/tickets/analytics`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -43,7 +44,7 @@ export default function AdminPanel() {
   const handleDelete = async (userId) => {
     if (!window.confirm("Are you sure you want to delete this user? This will also unassign all their tickets.")) return;
     try {
-      const res = await fetch(`${import.meta.env.VITE_SERVER_URL}/auth/users/${userId}`, {
+      const res = await fetch(`${API_BASE_URL}/auth/users/${userId}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -64,7 +65,7 @@ export default function AdminPanel() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_SERVER_URL}/auth/users`, {
+      const res = await fetch(`${API_BASE_URL}/auth/users`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -92,7 +93,7 @@ export default function AdminPanel() {
   const handleUpdate = async () => {
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_SERVER_URL}/auth/update-user`,
+        `${API_BASE_URL}/auth/update-user`,
         {
           method: "POST",
           headers: {
