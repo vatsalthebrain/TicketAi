@@ -2,6 +2,10 @@
 
 A smart ticket management system that uses AI to automatically categorize, prioritize, and assign support tickets to the most appropriate moderators.
 
+Live on :- https://ticketai-3.onrender.com/login
+
+
+
 <img width="1600" height="767" alt="image" src="https://github.com/user-attachments/assets/e31f88cb-742d-4f75-8e9c-810cb63f44eb" />
 
 <img width="1600" height="623" alt="image" src="https://github.com/user-attachments/assets/185fb8e1-2990-4410-8a6a-f8848e506ff3" />
