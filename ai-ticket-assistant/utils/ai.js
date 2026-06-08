@@ -3,18 +3,70 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const analyzeTicket = async (ticket) => {
-  try {
-    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-    if (!GEMINI_API_KEY) {
-      console.error("❌ GEMINI_API_KEY is not defined in environment variables.");
-      return null;
+export let apiKeys = [];
+export let currentKeyIndex = 0;
+
+export const getApiKey = () => {
+  if (apiKeys.length === 0) {
+    const rawKeys = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "";
+    apiKeys = rawKeys.split(",").map(k => k.trim()).filter(Boolean);
+  }
+
+  if (apiKeys.length === 0) {
+    return null;
+  }
+
+  const key = apiKeys[currentKeyIndex];
+  currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
+  return key;
+};
+
+// Unified self-healing helper to post to Gemini with key rotation retries
+export const postToGemini = async (modelAction, payload, generationConfig = null) => {
+  if (apiKeys.length === 0) {
+    const rawKeys = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "";
+    apiKeys = rawKeys.split(",").map(k => k.trim()).filter(Boolean);
+  }
+
+  if (apiKeys.length === 0) {
+    console.error("❌ No GEMINI_API_KEYS or GEMINI_API_KEY defined.");
+    return null;
+  }
+
+  const attemptLimit = apiKeys.length;
+  for (let attempt = 0; attempt < attemptLimit; attempt++) {
+    const key = apiKeys[currentKeyIndex];
+    // Rotate key index for the next request attempt
+    currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:${modelAction}?key=${key}`;
+    const maskedKey = key.substring(0, 8) + "..." + key.substring(key.length - 8);
+
+    try {
+      const body = { ...payload };
+      if (generationConfig) {
+        body.generationConfig = generationConfig;
+      }
+
+      console.log(`🤖 Attempting Gemini API call with Key #${currentKeyIndex === 0 ? apiKeys.length : currentKeyIndex} (${maskedKey})...`);
+      
+      const response = await axios.post(url, body, {
+        headers: { "Content-Type": "application/json" }
+      });
+
+      return response.data;
+    } catch (e) {
+      const errorMsg = e.response?.data?.error?.message || e.message;
+      console.warn(`⚠️ Gemini API call failed with Key (${maskedKey}). Error: ${errorMsg}. Retrying with next key...`);
     }
+  }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+  console.error("❌ All configured Gemini API keys failed or were rate-limited.");
+  return null;
+};
 
-    console.log("🤖 Requesting Gemini analysis for ticket:", ticket._id);
-
+export const analyzeTicket = async (ticket) => {
+  try {
     const prompt = `You are an expert AI assistant that processes technical support tickets. 
 
 Your job is to:
@@ -33,50 +85,33 @@ Ticket details:
 - Title: ${ticket.title}
 - Description: ${ticket.description}`;
 
-    const response = await axios.post(
-      url,
+    const data = await postToGemini(
+      "generateContent",
       {
         contents: [
           {
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-        },
+            parts: [{ text: prompt }]
+          }
+        ]
       },
       {
-        headers: {
-          "Content-Type": "application/json",
-        },
+        responseMimeType: "application/json"
       }
     );
 
+    if (!data) return null;
+
     console.log("Successfully got response from Gemini API");
-    const raw = response.data.candidates[0].content.parts[0].text;
+    const raw = data.candidates[0].content.parts[0].text;
     return raw;
   } catch (e) {
-    console.error("Error during AI analysis: " + (e.response?.data ? JSON.stringify(e.response.data) : e.message));
+    console.error("Error during AI analysis:", e.message);
     return null;
   }
 };
 
 export const matchModerator = async (ticket, moderators) => {
   try {
-    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-    if (!GEMINI_API_KEY) {
-      console.error("❌ GEMINI_API_KEY is not defined in environment variables.");
-      return null;
-    }
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-
-    console.log("🤖 Requesting Gemini to assign moderator for ticket:", ticket._id);
-
     const moderatorsList = moderators.map(mod => ({
       email: mod.email,
       role: mod.role,
@@ -93,7 +128,8 @@ Ticket details:
 Available moderators/admins:
 ${JSON.stringify(moderatorsList, null, 2)}
 
-Analyze the ticket's technical requirements and semantically match them against the skills of the available moderators. If no moderator is a good fit, assign it to an administrator.
+Analyze the ticket's technical requirements and semantically match them against the skills of the available moderators/admins. 
+CRITICAL RULE: Always prefer assigning the ticket to a moderator if they have any related skills. Only assign to an administrator if no moderator has any matching or related skills for the ticket.
 
 Respond ONLY with a JSON object matching this schema:
 {
@@ -101,30 +137,23 @@ Respond ONLY with a JSON object matching this schema:
   "reason": "Explain briefly why this person is the best match based on their skills."
 }`;
 
-    const response = await axios.post(
-      url,
+    const data = await postToGemini(
+      "generateContent",
       {
         contents: [
           {
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-        },
+            parts: [{ text: prompt }]
+          }
+        ]
       },
       {
-        headers: {
-          "Content-Type": "application/json",
-        },
+        responseMimeType: "application/json"
       }
     );
 
-    const raw = response.data.candidates[0].content.parts[0].text;
+    if (!data) return null;
+
+    const raw = data.candidates[0].content.parts[0].text;
     console.log("🤖 Moderator assignment AI Response:", raw);
 
     let parsed;
@@ -137,23 +166,13 @@ Respond ONLY with a JSON object matching this schema:
 
     return parsed.assignedEmail || null;
   } catch (e) {
-    console.error("Error during AI moderator matching:", e.response?.data ? JSON.stringify(e.response.data) : e.message);
+    console.error("Error during AI moderator matching:", e.message);
     return null;
   }
 };
 
 export const chatWithGemini = async (ticket, messages) => {
   try {
-    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-    if (!GEMINI_API_KEY) {
-      console.error("❌ GEMINI_API_KEY is not defined in environment variables.");
-      return null;
-    }
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-
-    console.log("🤖 Requesting Gemini Chat Co-Pilot for ticket:", ticket._id);
-
     const systemPrompt = `You are a helpful AI Co-Pilot helping a technical support moderator/admin resolve a support ticket.
 Here is the ticket context:
 - ID: ${ticket._id}
@@ -163,13 +182,17 @@ Here is the ticket context:
 - Helpful Notes: ${ticket.helpfulNotes || "none"}
 - Related Skills: ${JSON.stringify(ticket.relatedSkills || [])}
 
-Please answer the moderator's questions based on this ticket context and your general technical knowledge. Keep your answers clear, helpful, and concise.`;
+Please answer the moderator's questions based on this ticket context and your general technical knowledge.
+CRITICAL LIMITS: Keep your answers extremely concise, short, and to-the-point (maximum of 2-3 sentences).
+If providing a code snippet, command, or email template, provide ONLY the raw code/command/template with minimal or no explanatory text.`;
 
     const contents = [];
-    messages.forEach((msg, idx) => {
+    let firstUserFound = false;
+    messages.forEach((msg) => {
       let textContent = msg.content;
-      if (idx === 0 && msg.role === "user") {
+      if (msg.role === "user" && !firstUserFound) {
         textContent = `${systemPrompt}\n\nUser Question: ${msg.content}`;
+        firstUserFound = true;
       }
       contents.push({
         role: msg.role === "assistant" ? "model" : "user",
@@ -177,22 +200,22 @@ Please answer the moderator's questions based on this ticket context and your ge
       });
     });
 
-    const response = await axios.post(
-      url,
+    const data = await postToGemini(
+      "generateContent",
       {
-        contents,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
         },
+        contents
       }
     );
 
-    const raw = response.data.candidates[0].content.parts[0].text;
+    if (!data) return null;
+
+    const raw = data.candidates[0].content.parts[0].text;
     return raw;
   } catch (e) {
-    console.error("Error during AI chat session: " + (e.response?.data ? JSON.stringify(e.response.data) : e.message));
+    console.error("Error during AI chat session:", e.message);
     return null;
   }
 };

@@ -72,10 +72,14 @@ export const processTicketCreated = async (ticketId) => {
       console.log("⚠️ Gemini API returned null (quota exceeded or network error). Using local fallback analysis...");
       aiResponse = generateFallbackAnalysis(ticket);
     } else {
+      let notes = parsed.helpfulNotes || "";
+      if (Array.isArray(notes)) {
+        notes = notes.map(n => `- ${n}`).join("\n");
+      }
       aiResponse = {
         summary: parsed.summary || "",
         priority: parsed.priority || "medium",
-        helpfulNotes: parsed.helpfulNotes || "",
+        helpfulNotes: notes,
         relatedSkills: Array.isArray(parsed.relatedSkills)
           ? parsed.relatedSkills.filter(Boolean)
           : [],
@@ -173,7 +177,7 @@ ${finalTicket.helpfulNotes || "No notes generated."}
   }
 };
 
-function generateFallbackAnalysis(ticket) {
+export function generateFallbackAnalysis(ticket) {
   const title = (ticket.title || "").toLowerCase();
   const description = (ticket.description || "").toLowerCase();
   const text = `${title} ${description}`;
@@ -230,7 +234,7 @@ function generateFallbackAnalysis(ticket) {
   };
 }
 
-function findBestModeratorLocally(ticket, staffMembers) {
+export function findBestModeratorLocally(ticket, staffMembers) {
   const title = (ticket.title || "").toLowerCase();
   const description = (ticket.description || "").toLowerCase();
   const textToSearch = `${title} ${description}`;
@@ -275,7 +279,7 @@ function findBestModeratorLocally(ticket, staffMembers) {
 
     // Preference to moderator role for support tickets
     if (member.role === "moderator") {
-      score += 0.5;
+      score += 20.0;
     }
 
     if (score > maxScore) {

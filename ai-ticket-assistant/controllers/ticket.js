@@ -270,3 +270,52 @@ If you need database diagnostic commands (type "mongo commands"), email drafts (
     return res.status(500).json({ message: "Internal Server Error", details: error.message });
   }
 };
+
+export const addComment = async (req, res) => {
+  try {
+    const ticketId = req.params.id;
+    const { content } = req.body;
+
+    if (!content || typeof content !== "string" || !content.trim()) {
+      return res.status(400).json({ error: "Comment content is required." });
+    }
+
+    const ticket = await Ticket.findById(ticketId);
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found" });
+    }
+
+    // Role-based permission checks:
+    // 1) Users can only comment on their own created tickets
+    if (req.user.role === "user" && ticket.createdBy?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Forbidden: You can only comment on your own tickets." });
+    }
+    // 2) Moderators can only comment on tickets assigned to them
+    if (req.user.role === "moderator" && ticket.assignedTo?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Forbidden: You can only comment on tickets assigned to you." });
+    }
+
+    // Fetch user details to get email since token payload only has _id and role
+    const dbUser = await User.findById(req.user._id);
+    if (!dbUser) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Push new comment
+    const newComment = {
+      sender: req.user._id,
+      senderEmail: dbUser.email,
+      content: content.trim(),
+      createdAt: new Date(),
+    };
+
+    ticket.comments = ticket.comments || [];
+    ticket.comments.push(newComment);
+    await ticket.save();
+
+    return res.status(201).json({ message: "Comment added successfully", comments: ticket.comments });
+  } catch (error) {
+    console.error("❌ Error in addComment controller:", error);
+    return res.status(500).json({ message: "Internal Server Error", details: error.message });
+  }
+};

@@ -17,6 +17,11 @@ export default function TicketDetailsPage() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
+  // Discussion Thread States
+  const [comments, setComments] = useState([]);
+  const [commentInput, setCommentInput] = useState("");
+  const [commentLoading, setCommentLoading] = useState(false);
+
   const token = localStorage.getItem("token");
   const user = JSON.parse(localStorage.getItem("user") || "{}");
 
@@ -34,6 +39,7 @@ export default function TicketDetailsPage() {
 
       if (res.ok) {
         setTicket(data.ticket);
+        setComments(data.ticket.comments || []);
       } else {
         alert(data.message || "Failed to fetch ticket");
       }
@@ -116,11 +122,100 @@ export default function TicketDetailsPage() {
     }
   };
 
+  const handlePostComment = async (e) => {
+    e.preventDefault();
+    if (!commentInput.trim()) return;
+
+    setCommentLoading(true);
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_SERVER_URL}/tickets/${id}/comments`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            content: commentInput
+          }),
+        }
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setComments(data.comments || []);
+        setCommentInput("");
+      } else {
+        alert(data.error || "Failed to post comment");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Network error: Could not send reply.");
+    } finally {
+      setCommentLoading(false);
+    }
+  };
+
   if (loading)
     return <div className="text-center mt-10">Loading ticket details...</div>;
   if (!ticket) return <div className="text-center mt-10">Ticket not found</div>;
 
   const isStaff = user.role === "admin" || user.role === "moderator";
+
+  const renderDiscussionThread = (extraClasses = "") => (
+    <div className={`card bg-gray-800 border border-gray-700/50 shadow-xl p-6 rounded-2xl space-y-4 ${extraClasses}`}>
+      <h3 className="text-lg font-bold text-white border-b border-gray-700/50 pb-3 flex items-center justify-between">
+        <span>Discussion Thread</span>
+        <span className="badge badge-primary font-bold">{comments.length} Comments</span>
+      </h3>
+
+      {/* Comments List */}
+      <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1">
+        {comments.map((comment, idx) => {
+          const isMe = comment.senderEmail === user.email;
+          return (
+            <div key={idx} className={`chat ${isMe ? "chat-end" : "chat-start"}`}>
+              <div className="chat-header text-gray-400 text-[10px] mb-1 font-semibold flex gap-1.5 items-center">
+                <span>{comment.senderEmail}</span>
+                <span>•</span>
+                <span>{new Date(comment.createdAt).toLocaleString()}</span>
+              </div>
+              <div className={`chat-bubble text-xs font-semibold ${
+                isMe 
+                  ? "bg-primary text-primary-content" 
+                  : "bg-gray-900 text-gray-200 border border-gray-700/50"
+              }`}>
+                {comment.content}
+              </div>
+            </div>
+          );
+        })}
+        {comments.length === 0 && (
+          <p className="text-gray-400 text-xs text-center py-6">No messages in this thread yet. Start the conversation below!</p>
+        )}
+      </div>
+
+      {/* Post a Comment Form */}
+      <form onSubmit={handlePostComment} className="flex gap-2 border-t border-gray-700/50 pt-4">
+        <input
+          type="text"
+          placeholder="Type a message to reply..."
+          value={commentInput}
+          onChange={(e) => setCommentInput(e.target.value)}
+          className="input input-bordered input-sm flex-1 bg-gray-900 border-gray-700 text-xs focus:border-primary text-white"
+          disabled={commentLoading}
+          required
+        />
+        <button
+          type="submit"
+          className="btn btn-primary btn-sm px-4 text-xs font-bold"
+          disabled={commentLoading}
+        >
+          {commentLoading ? "Sending..." : "Reply"}
+        </button>
+      </form>
+    </div>
+  );
 
   return (
     <div className={`mx-auto p-4 ${isStaff ? "max-w-6xl" : "max-w-3xl"}`}>
@@ -134,8 +229,8 @@ export default function TicketDetailsPage() {
       </div>
 
       <div className={`grid grid-cols-1 ${isStaff ? "lg:grid-cols-12" : ""} gap-6`}>
-        {/* Left Column: Ticket details */}
-        <div className={isStaff ? "lg:col-span-7" : ""}>
+        {/* Left Column: Ticket details & Comments thread for non-staff */}
+        <div className={isStaff ? "lg:col-span-7" : "w-full"}>
           <div className="card bg-gray-800 border border-gray-700/50 shadow-xl p-6 space-y-4 rounded-2xl">
             <h3 className="text-xl font-semibold text-white">{ticket.title}</h3>
             <p className="text-gray-300 leading-relaxed">{ticket.description}</p>
@@ -193,97 +288,92 @@ export default function TicketDetailsPage() {
               </>
             )}
           </div>
+
+          {/* Discussion Thread / Comment Box (only shown here for non-staff) */}
+          {!isStaff && renderDiscussionThread("mt-6")}
         </div>
 
-        {/* Right Column: AI Co-Pilot Chat Widget (Moderators/Admins Only) */}
+        {/* Right Column: AI Co-Pilot Chat Widget & Discussion Thread (Moderators/Admins Only) */}
         {isStaff && (
-          <div className="lg:col-span-5 flex flex-col h-[550px] bg-gray-800 border border-gray-700/50 shadow-xl rounded-2xl p-4">
-            <div className="flex items-center gap-2 border-b border-gray-700/50 pb-3 mb-3">
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
-              <h3 className="font-extrabold text-sm text-white uppercase tracking-wider">AI Co-Pilot Assistant</h3>
-            </div>
+          <div className="lg:col-span-5 flex flex-col gap-6">
+            {/* AI Co-Pilot Chat Widget */}
+            <div className="flex flex-col h-[550px] bg-gray-800 border border-gray-700/50 shadow-xl rounded-2xl p-4">
+              <div className="flex items-center gap-2 border-b border-gray-700/50 pb-3 mb-3">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                <h3 className="font-extrabold text-sm text-white uppercase tracking-wider">AI Co-Pilot Assistant</h3>
+              </div>
 
-            {/* Quick Action Chips */}
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              <button
-                disabled={chatLoading}
-                onClick={() => handleSendMessage("Draft a reply email explaining that we are looking into the issue")}
-                className="btn btn-xs btn-outline btn-primary rounded-full font-semibold text-[10px]"
-              >
-                ✉️ Draft Email
-              </button>
-              <button
-                disabled={chatLoading}
-                onClick={() => handleSendMessage("What commands should I run to inspect the MongoDB logs on Ubuntu?")}
-                className="btn btn-xs btn-outline btn-primary rounded-full font-semibold text-[10px]"
-              >
-                📁 MongoDB Logs
-              </button>
-              <button
-                disabled={chatLoading}
-                onClick={() => handleSendMessage("Suggest debugging steps for React frontend issues")}
-                className="btn btn-xs btn-outline btn-primary rounded-full font-semibold text-[10px]"
-              >
-                ⚙️ React Debug
-              </button>
-            </div>
-
-            {/* Chat Messages */}
-            <div className="flex-1 overflow-y-auto space-y-3 mb-3 pr-1 text-sm scrollbar-thin">
-              {chatMessages.map((msg, index) => (
-                <div
-                  key={index}
-                  className={`chat ${msg.role === "user" ? "chat-end" : "chat-start"}`}
+              {/* Quick Action Chips */}
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                <button
+                  disabled={chatLoading}
+                  onClick={() => handleSendMessage("Draft a reply email explaining that we are looking into the issue")}
+                  className="btn btn-xs btn-outline btn-primary rounded-full font-semibold text-[10px]"
                 >
-                  <div className={`chat-bubble max-w-[90%] text-xs leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-primary text-primary-content font-medium"
-                      : "bg-gray-900 text-gray-200 border border-gray-700/50"
-                  }`}>
-                    {msg.role === "assistant" ? (
-                      <div className="prose max-w-none prose-invert text-xs">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
-                      </div>
-                    ) : (
-                      msg.content
-                    )}
+                  ✉️ Draft Email
+                </button>
+              </div>
+
+              {/* Chat Messages */}
+              <div className="flex-1 overflow-y-auto space-y-3 mb-3 pr-1 text-sm scrollbar-thin">
+                {chatMessages.map((msg, index) => (
+                  <div
+                    key={index}
+                    className={`chat ${msg.role === "user" ? "chat-end" : "chat-start"}`}
+                  >
+                    <div className={`chat-bubble max-w-[90%] text-xs leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-primary text-primary-content font-medium"
+                        : "bg-gray-900 text-gray-200 border border-gray-700/50"
+                    }`}>
+                      {msg.role === "assistant" ? (
+                        <div className="prose max-w-none prose-invert text-xs">
+                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        msg.content
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-              {chatLoading && (
-                <div className="chat chat-start">
-                  <div className="chat-bubble bg-gray-900 text-gray-200 border border-gray-700/50 max-w-[90%] text-xs flex items-center gap-1">
-                    <span className="loading loading-dots loading-xs text-primary"></span>
-                    <span>AI Co-Pilot is thinking...</span>
+                ))}
+                {chatLoading && (
+                  <div className="chat chat-start">
+                    <div className="chat-bubble bg-gray-900 text-gray-200 border border-gray-700/50 max-w-[90%] text-xs flex items-center gap-1">
+                      <span className="loading loading-dots loading-xs text-primary"></span>
+                      <span>AI Co-Pilot is thinking...</span>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+
+              {/* Message Input */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendMessage();
+                }}
+                className="flex gap-2 border-t border-gray-700/50 pt-3"
+              >
+                <input
+                  type="text"
+                  placeholder="Ask follow-up questions about this ticket..."
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  className="input input-bordered input-sm flex-1 bg-gray-900 border-gray-700 text-xs focus:border-primary text-white"
+                  disabled={chatLoading}
+                />
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm px-4 text-xs font-bold"
+                  disabled={chatLoading}
+                >
+                  Send
+                </button>
+              </form>
             </div>
 
-            {/* Message Input */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSendMessage();
-              }}
-              className="flex gap-2 border-t border-gray-700/50 pt-3"
-            >
-              <input
-                type="text"
-                placeholder="Ask follow-up questions about this ticket..."
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                className="input input-bordered input-sm flex-1 bg-gray-900 border-gray-700 text-xs focus:border-primary text-white"
-                disabled={chatLoading}
-              />
-              <button
-                type="submit"
-                className="btn btn-primary btn-sm px-4 text-xs font-bold"
-                disabled={chatLoading}
-              >
-                Send
-              </button>
-            </form>
+            {/* Discussion Thread / Comment Box (placed below AI Co-Pilot for staff) */}
+            {renderDiscussionThread()}
           </div>
         )}
       </div>
